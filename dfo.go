@@ -10,14 +10,15 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kelseyhightower/envconfig"
 	"gopkg.in/yaml.v2"
 )
 
 type dfoConfig struct {
-	repodir string
-	homedir string
-	dfoDir  string
-	yaml    yamlConfig
+	RepoDir string
+	HomeDir string
+	WorkDir string
+	Yaml    yamlConfig
 }
 
 type yamlConfig struct {
@@ -28,26 +29,19 @@ var config dfoConfig
 
 func initWorkDir() error {
 	var perm os.FileMode = 0755
-	err := os.MkdirAll(config.dfoDir, perm)
+	err := os.MkdirAll(config.WorkDir, perm)
 	if err != nil {
 		return err
 	}
-	backupDir := filepath.Join(config.dfoDir, "backups")
+	backupDir := filepath.Join(config.WorkDir, "backups")
 	err = os.MkdirAll(backupDir, perm)
 	return err
 }
 
-// populateConfigDir gets a directory name from an environment value and returns its absolute path.
-// If it doesn't exist in env it returns the default value
-func populateConfigDir(envName string, defaultValue string) string {
-	value := os.Getenv(envName)
-	if len(value) == 0 {
-		value = filepath.Join(config.homedir, defaultValue)
-	}
-	if !filepath.IsAbs(value) {
-		return filepath.Join(config.homedir, value)
-	}
-	return value
+func populateConfigDefaults() {
+	config.HomeDir = os.Getenv("HOME")
+	config.RepoDir = filepath.Join(config.HomeDir, "git/dotfiles")
+	config.WorkDir = filepath.Join(config.HomeDir, ".dfo")
 }
 
 // Env variables:
@@ -55,21 +49,24 @@ func populateConfigDir(envName string, defaultValue string) string {
 // DFO_WORKDIR: Path to the dfo work directory. Default: ~/.dfo/
 func init() {
 
-	config.homedir = os.Getenv("HOME")
-	config.repodir = populateConfigDir("DFO_REPODIR", "git/dotfiles")
-	config.dfoDir = populateConfigDir("DFO_WORKDIR", ".dfo")
+	populateConfigDefaults()
 
-	err := initWorkDir()
+	err := envconfig.Process("dfo", &config)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	configPath := filepath.Join(config.repodir, "dfo.yaml")
+	err = initWorkDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	configPath := filepath.Join(config.RepoDir, "dfo.yaml")
 	configBytes, err := ioutil.ReadFile(configPath)
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = yaml.Unmarshal(configBytes, &config.yaml)
+	err = yaml.Unmarshal(configBytes, &config.Yaml)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -86,7 +83,7 @@ func createBackupDir() (string, error) {
 	}
 	curDate := string(b)
 	dirName := fmt.Sprintf("backups/dfo_backup_%v", curDate)
-	backupDir := filepath.Join(config.dfoDir, dirName)
+	backupDir := filepath.Join(config.WorkDir, dirName)
 
 	var perm os.FileMode = 0755
 	err = os.Mkdir(backupDir, perm)
@@ -102,7 +99,7 @@ func createBackupDir() (string, error) {
 // Returns: needsUpdate, needsBackup, err
 func fileNeedsUpdating(path string, newSrc string) (bool, bool, error) {
 
-	targetPath := filepath.Join(config.homedir, path)
+	targetPath := filepath.Join(config.HomeDir, path)
 	// We don't really care if it's a symlink or not, we just want to know if it's the same symlink we're going to create
 	// TODO: If the file doesn't exist, don't treat it as an error
 	fi, err := os.Lstat(targetPath)
@@ -120,7 +117,7 @@ func fileNeedsUpdating(path string, newSrc string) (bool, bool, error) {
 		if err != nil {
 			return false, false, err
 		}
-		absSrc := filepath.Join(config.repodir, newSrc)
+		absSrc := filepath.Join(config.RepoDir, newSrc)
 		// TODO: There's probably a better way of comparing them
 		if absSrc == linkTarget {
 			return false, false, nil
@@ -134,7 +131,7 @@ func fileNeedsUpdating(path string, newSrc string) (bool, bool, error) {
 // backupFile takes a backup of the given file and stores it in the backup directory
 // TODO: Also keep track of what files (both source and target) have been backed up so they're easier to restore
 func backupFile(path string, backupDir string) error {
-	targetPath := filepath.Join(config.homedir, path)
+	targetPath := filepath.Join(config.HomeDir, path)
 
 	targetBackupPath := filepath.Join(backupDir, path)
 	err := os.Link(targetPath, targetBackupPath)
@@ -144,28 +141,25 @@ func backupFile(path string, backupDir string) error {
 // replaceFile replaces a existing file with a symlink to src
 // target file should have been backed up previously
 func replaceFile(target string, src string) error {
-	targetPath := filepath.Join(config.homedir, target)
+	targetPath := filepath.Join(config.HomeDir, target)
 
 	// TODO: Handle when target doesn't exist
 	err := os.Remove(targetPath)
 
 	if err != nil && !os.IsNotExist(err) {
-		log.Println(err)
 		return err
 	}
 
 	// TODO: Check if path is absolute first?
-	absSrc := filepath.Join(config.repodir, src)
+	absSrc := filepath.Join(config.RepoDir, src)
 	err = os.Symlink(absSrc, targetPath)
 	return err
 }
 
 func main() {
-	fmt.Printf("%v\n", config)
-
 	var backupDir string
 
-	for target, src := range config.yaml.Files {
+	for target, src := range config.Yaml.Files {
 		log.Printf("%v -> %v", target, src)
 
 		needsUpdate, needsBackup, err := fileNeedsUpdating(target, src)
