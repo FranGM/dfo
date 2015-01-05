@@ -134,7 +134,15 @@ func backupFile(path string, backupDir string) error {
 	targetPath := filepath.Join(config.HomeDir, path)
 
 	targetBackupPath := filepath.Join(backupDir, path)
-	err := os.Link(targetPath, targetBackupPath)
+
+	targetDir := filepath.Dir(targetBackupPath)
+	var perm os.FileMode = 0755
+	err := os.MkdirAll(targetDir, perm)
+	if err != nil {
+		return err
+	}
+
+	err = os.Link(targetPath, targetBackupPath)
 	return err
 }
 
@@ -143,15 +151,25 @@ func backupFile(path string, backupDir string) error {
 func replaceFile(target string, src string) error {
 	targetPath := filepath.Join(config.HomeDir, target)
 
-	// TODO: Handle when target doesn't exist
 	err := os.Remove(targetPath)
-
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	// TODO: Check if path is absolute first?
-	absSrc := filepath.Join(config.RepoDir, src)
+	// Make sure that the directory holding our file exists
+	dir := filepath.Dir(targetPath)
+	var perm os.FileMode = 0755
+	err = os.MkdirAll(dir, perm)
+	if err != nil {
+		return err
+	}
+
+	var absSrc string
+	if !filepath.IsAbs(src) {
+		absSrc = filepath.Join(config.RepoDir, src)
+	} else {
+		absSrc = src
+	}
 	err = os.Symlink(absSrc, targetPath)
 	return err
 }
@@ -160,7 +178,7 @@ func main() {
 	var backupDir string
 
 	for target, src := range config.Yaml.Files {
-		log.Printf("%v -> %v", target, src)
+		log.Printf("%v -> %v", src, target)
 
 		needsUpdate, needsBackup, err := fileNeedsUpdating(target, src)
 		if err != nil {
@@ -172,7 +190,7 @@ func main() {
 		}
 
 		if needsBackup {
-			if len(backupDir) == 0 {
+			if backupDir == "" {
 				backupDir, err = createBackupDir()
 				if err != nil {
 					log.Fatal(err)
