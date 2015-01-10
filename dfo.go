@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/FranGM/simplelog"
 	"github.com/kelseyhightower/envconfig"
 	"gopkg.in/yaml.v2"
 )
@@ -178,14 +179,14 @@ func main() {
 	var backupDir string
 
 	for target, src := range config.Yaml.Files {
-		log.Printf("%v -> %v", src, target)
+		simplelog.Info.Printf("%v -> %v", src, target)
 
 		needsUpdate, needsBackup, err := fileNeedsUpdating(target, src)
 		if err != nil {
 			log.Fatal(err)
 		}
 		if !needsUpdate {
-			log.Printf("No changes needed for %v", target)
+			simplelog.Info.Printf("No changes needed for %v", target)
 			continue
 		}
 
