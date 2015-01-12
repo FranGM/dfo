@@ -3,15 +3,17 @@
 package main
 
 import (
+	"bytes"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
 	"github.com/FranGM/simplelog"
-	"github.com/kelseyhightower/envconfig"
 	"gopkg.in/yaml.v2"
 )
 
@@ -19,6 +21,8 @@ type dfoConfig struct {
 	RepoDir string
 	HomeDir string
 	WorkDir string
+	Repo    string
+	Execute bool
 	Yaml    yamlConfig
 }
 
@@ -30,47 +34,77 @@ var config dfoConfig
 
 func initWorkDir() error {
 	var perm os.FileMode = 0755
-	err := os.MkdirAll(config.WorkDir, perm)
-	if err != nil {
+	if err := os.MkdirAll(config.WorkDir, perm); err != nil {
 		return err
 	}
 	backupDir := filepath.Join(config.WorkDir, "backups")
-	err = os.MkdirAll(backupDir, perm)
-	return err
+	if err := os.MkdirAll(backupDir, perm); err != nil {
+		return err
+	}
+
+	// We should have a clone of our git dotfiles repo here, create it if it doesn't exist
+	_, err := os.Stat(config.RepoDir)
+
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+
+		// If no git repo has been defined and we don't have a working repo already we have a problem
+		if config.Repo == "" {
+			simplelog.Fatal.Printf("No git repo has been specified and no current working repo in %q, aborting", config.RepoDir)
+		}
+
+		simplelog.Info.Printf("Repo doesn't exist, cloning %q into %q...", config.Repo, config.RepoDir)
+		if err := initializeGitRepo(); err != nil {
+			return err
+		}
+		simplelog.Info.Printf("Repo cloned.")
+	}
+
+	// TODO: If a gitrepo has been specified, check that it's the same that we already have?
+
+	simplelog.Info.Printf("Updating repo/submodules (might take a while if it's the first time)")
+	if err := updateGitRepo(); err != nil {
+		return err
+	}
+	simplelog.Info.Printf("...Done")
+
+	return nil
 }
 
-func populateConfigDefaults() {
-	config.HomeDir = os.Getenv("HOME")
-	config.RepoDir = filepath.Join(config.HomeDir, "git/dotfiles")
-	config.WorkDir = filepath.Join(config.HomeDir, ".dfo")
+// Clone our dotfiles git repo into our dfo working directory
+func initializeGitRepo() error {
+	cmd := exec.Command("git", "clone", config.Repo, config.RepoDir)
+
+	var e bytes.Buffer
+	cmd.Stderr = &e
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s: %s\n", err.Error(), e.String())
+	}
+	return nil
 }
 
-// Env variables:
-// DFO_REPODIR: Path to the dotfiles repo. Default: ~/git/dotfiles/
-// DFO_WORKDIR: Path to the dfo work directory. Default: ~/.dfo/
-func init() {
+// Does a git pull from the remote dotfiles git repo into our working copy
+func updateGitRepo() error {
 
-	populateConfigDefaults()
-
-	err := envconfig.Process("dfo", &config)
-	if err != nil {
-		log.Fatal(err)
+	var e bytes.Buffer
+	cmd := exec.Command("git", "submodule", "update", "--init", "--recursive")
+	cmd.Dir = config.RepoDir
+	cmd.Stderr = &e
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s: %s\n", err.Error(), e.String())
 	}
 
-	err = initWorkDir()
-	if err != nil {
-		log.Fatal(err)
+	cmd = exec.Command("git", "pull")
+	cmd.Dir = config.RepoDir
+	cmd.Stderr = &e
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s: %s\n", err.Error(), e.String())
 	}
 
-	configPath := filepath.Join(config.RepoDir, "dfo.yaml")
-	configBytes, err := ioutil.ReadFile(configPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = yaml.Unmarshal(configBytes, &config.Yaml)
-	if err != nil {
-		log.Fatal(err)
-	}
+	return nil
 }
 
 // TODO: Only create the backup dir when we're actually backing up files
@@ -102,7 +136,6 @@ func fileNeedsUpdating(path string, newSrc string) (bool, bool, error) {
 
 	targetPath := filepath.Join(config.HomeDir, path)
 	// We don't really care if it's a symlink or not, we just want to know if it's the same symlink we're going to create
-	// TODO: If the file doesn't exist, don't treat it as an error
 	fi, err := os.Lstat(targetPath)
 	if err != nil {
 		// If it doesn't exist we need to update it but not back it up
@@ -113,7 +146,6 @@ func fileNeedsUpdating(path string, newSrc string) (bool, bool, error) {
 	}
 
 	if fi.Mode()&os.ModeSymlink == os.ModeSymlink {
-		// TODO: Here we would make a note of where the symlink is pointing to for backup purposes
 		linkTarget, err := os.Readlink(targetPath)
 		if err != nil {
 			return false, false, err
@@ -130,8 +162,8 @@ func fileNeedsUpdating(path string, newSrc string) (bool, bool, error) {
 }
 
 // backupFile takes a backup of the given file and stores it in the backup directory
-// TODO: Also keep track of what files (both source and target) have been backed up so they're easier to restore
 func backupFile(path string, backupDir string) error {
+	simplelog.Info.Printf("Backing up %q", path)
 	targetPath := filepath.Join(config.HomeDir, path)
 
 	targetBackupPath := filepath.Join(backupDir, path)
@@ -150,6 +182,7 @@ func backupFile(path string, backupDir string) error {
 // replaceFile replaces a existing file with a symlink to src
 // target file should have been backed up previously
 func replaceFile(target string, src string) error {
+	simplelog.Info.Printf("Replacing content of %q", target)
 	targetPath := filepath.Join(config.HomeDir, target)
 
 	err := os.Remove(targetPath)
@@ -175,6 +208,38 @@ func replaceFile(target string, src string) error {
 	return err
 }
 
+func init() {
+	config.HomeDir = os.Getenv("HOME")
+	flag.StringVar(&config.WorkDir, "workdir", filepath.Join(config.HomeDir, ".dfo"), "Work directory for dfo (will be used to store backups and git repo)")
+	flag.StringVar(&config.Repo, "gitrepo", "", "Remote git repo that holds your dotfiles")
+	flag.BoolVar(&config.Execute, "execute", false, "Apply the changes (otherwise it will just do a dry-run)")
+	getUsage := flag.Bool("help", false, "Display this help message")
+
+	flag.Parse()
+	config.RepoDir = filepath.Join(config.WorkDir, "dotfiles")
+
+	simplelog.SetThreshold(simplelog.LevelDebug)
+
+	if *getUsage {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	if err := initWorkDir(); err != nil {
+		log.Fatal(err)
+	}
+
+	configPath := filepath.Join(config.RepoDir, "dfo.yaml")
+	configBytes, err := ioutil.ReadFile(configPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = yaml.Unmarshal(configBytes, &config.Yaml)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func main() {
 	var backupDir string
 
@@ -197,15 +262,24 @@ func main() {
 					log.Fatal(err)
 				}
 			}
-			err = backupFile(target, backupDir)
-			if err != nil {
-				log.Fatal(err)
+
+			if !config.Execute {
+				simplelog.Info.Printf("Would be backing up %q now...", target)
+			} else {
+				err = backupFile(target, backupDir)
+				if err != nil {
+					log.Fatal(err)
+				}
 			}
 		}
 
-		err = replaceFile(target, src)
-		if err != nil {
-			log.Fatal(err)
+		if !config.Execute {
+			simplelog.Info.Printf("Would be replacing %q now...", target)
+		} else {
+			err = replaceFile(target, src)
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 }
