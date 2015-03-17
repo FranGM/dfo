@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -24,6 +25,7 @@ type dfoConfig struct {
 	Repo    string
 	Noop    bool
 	Verbose bool
+	Backup  bool
 	Yaml    dotfilesDef
 }
 
@@ -39,6 +41,7 @@ func init() {
 	flag.StringVar(&config.Repo, "gitrepo", "", "Remote git repo that holds your dotfiles")
 	flag.BoolVar(&config.Noop, "noop", false, "Run in noop mode (just do a dry-run)")
 	flag.BoolVar(&config.Verbose, "verbose", false, "Verbose output")
+	flag.BoolVar(&config.Backup, "backup", true, "Perform backups of files that are updated")
 
 	flag.Parse()
 	config.RepoDir = filepath.Join(config.WorkDir, "dotfiles")
@@ -145,6 +148,69 @@ func updateGitRepo() error {
 	return nil
 }
 
+func copyFile(srcPath string, destPath string) (err error) {
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+
+	defer srcFile.Close()
+
+	destFile, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, srcFile)
+	if err != nil {
+		return err
+	}
+
+	fi, err := os.Stat(srcPath)
+	if err != nil {
+		return err
+	}
+
+	return os.Chmod(destPath, fi.Mode())
+}
+
+func copyDir(srcPath string, destPath string) (err error) {
+
+	srcInfo, err := os.Stat(srcPath)
+	if err != nil {
+		return err
+	}
+
+	// create dest dir
+	err = os.MkdirAll(destPath, srcInfo.Mode())
+	if err != nil {
+		return err
+	}
+
+	dir, _ := os.Open(srcPath)
+	objects, err := dir.Readdir(-1)
+
+	for _, obj := range objects {
+		srcFile := filepath.Join(srcPath, obj.Name())
+		destFile := filepath.Join(destPath, obj.Name())
+
+		if obj.IsDir() {
+			err = copyDir(srcFile, destFile)
+			if err != nil {
+				return err
+			}
+		} else {
+			err = copyFile(srcFile, destFile)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // getBackupDirName generates a directory name to store backups
 //   based on the current time.
 func getBackupDirName() string {
@@ -201,6 +267,7 @@ func fileNeedsUpdating(path string, newSrc string) (bool, error) {
 }
 
 // backupFile takes a backup of the given file and stores it in the backup directory
+// path of the file to be backed up is relative to the user's home dir
 func backupFile(path string, backupDir string) error {
 	simplelog.Info.Printf("Backing up %q", path)
 
@@ -209,7 +276,7 @@ func backupFile(path string, backupDir string) error {
 	targetDir := filepath.Dir(targetBackupPath)
 
 	// If there's no source file there's nothing to backup
-	_, err := os.Stat(srcPath)
+	fi, err := os.Stat(srcPath)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -230,11 +297,16 @@ func backupFile(path string, backupDir string) error {
 	}
 
 	simplelog.Debug.Printf("Backing up %q into %q", srcPath, targetBackupPath)
+
 	if config.Noop {
 		return nil
 	}
-	err = os.Link(srcPath, targetBackupPath)
-	return err
+
+	if fi.IsDir() {
+		return copyDir(srcPath, targetBackupPath)
+	}
+
+	return os.Link(srcPath, targetBackupPath)
 }
 
 // replaceFile replaces a existing file with a symlink to src
@@ -242,16 +314,18 @@ func backupFile(path string, backupDir string) error {
 func replaceFile(target string, src string, backupDir string) error {
 	targetPath := filepath.Join(config.HomeDir, target)
 
-	err := backupFile(targetPath, backupDir)
-	if err != nil {
-		return err
+	if config.Backup {
+		err := backupFile(target, backupDir)
+		if err != nil {
+			return err
+		}
 	}
 
 	targetDir := filepath.Dir(targetPath)
 
 	simplelog.Debug.Printf("Deleting %q", targetPath)
 	if !config.Noop {
-		err = os.Remove(targetPath)
+		err := os.RemoveAll(targetPath)
 		if err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -260,7 +334,7 @@ func replaceFile(target string, src string, backupDir string) error {
 	simplelog.Debug.Printf("Making sure %q exists", targetDir)
 	if !config.Noop {
 		// Make sure that the directory holding our file exists
-		err = os.MkdirAll(targetDir, 0755)
+		err := os.MkdirAll(targetDir, 0755)
 		if err != nil {
 			return err
 		}
@@ -276,12 +350,13 @@ func replaceFile(target string, src string, backupDir string) error {
 	if config.Noop {
 		return nil
 	}
-	err = os.Symlink(absSrc, targetPath)
+	err := os.Symlink(absSrc, targetPath)
 	return err
 }
 
 func main() {
 	backupDir := getBackupDirName()
+	simplelog.Debug.Printf("Backups will be stored in %q", backupDir)
 
 	for target, src := range config.Yaml.Files {
 		needsUpdate, err := fileNeedsUpdating(target, src)
@@ -296,7 +371,7 @@ func main() {
 
 		err = replaceFile(target, src, backupDir)
 		if err != nil {
-			simplelog.Fatal.Printf("Error replacing file: %q", err)
+			simplelog.Fatal.Println(err)
 		}
 	}
 }
