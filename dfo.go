@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -148,34 +147,6 @@ func updateGitRepo() error {
 	return nil
 }
 
-func copyFile(srcPath string, destPath string) (err error) {
-	srcFile, err := os.Open(srcPath)
-	if err != nil {
-		return err
-	}
-
-	defer srcFile.Close()
-
-	destFile, err := os.Create(destPath)
-	if err != nil {
-		return err
-	}
-
-	defer destFile.Close()
-
-	_, err = io.Copy(destFile, srcFile)
-	if err != nil {
-		return err
-	}
-
-	fi, err := os.Stat(srcPath)
-	if err != nil {
-		return err
-	}
-
-	return os.Chmod(destPath, fi.Mode())
-}
-
 func copyDir(srcPath string, destPath string) (err error) {
 
 	srcInfo, err := os.Stat(srcPath)
@@ -202,7 +173,7 @@ func copyDir(srcPath string, destPath string) (err error) {
 				return err
 			}
 		} else {
-			err = copyFile(srcFile, destFile)
+			err = os.Link(srcFile, destFile)
 			if err != nil {
 				return err
 			}
