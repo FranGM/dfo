@@ -16,13 +16,18 @@ Installing:
   go get github.com/FranGM/dfo
 ```
 
+For setting things up initially, you usually just need to do something like:
+```
+  dfo -gitrepo="git@github.com:FranGM/dotfiles"
+```
+
 Usage:
 ```
   Usage of dfo:
     -backup=false: Perform backups of files that are updated
     -gitrepo="": Remote git repo that holds your dotfiles
     -noop=false: Run in noop mode (just do a dry-run)
-    -updategit=false: Do a 'git pull' and update submodules of the git repo
+    -updategit=true: Do a 'git pull' and update submodules of the git repo
     -verbose=false: Verbose output
     -workdir="/home/fran/.dfo": Work directory for dfo (will be used to store backups and dotfiles git repo)
 ```
