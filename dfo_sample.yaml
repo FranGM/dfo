@@ -1,7 +1,6 @@
 # Sample of config file. Move to dfo.yaml in dotfiles dir.
 # Format is:
 #   target: source
-files:
-  .vimrc: vimrc
-  .vim: vim
-  .tmux.conf: tmux/tmux.conf
+.vimrc: vimrc
+.vim: vim
+.tmux.conf: tmux/tmux.conf
