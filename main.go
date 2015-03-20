@@ -44,11 +44,11 @@ func (dfo *dfoState) initWorkDir() error {
 		}
 
 		// If no git repo has been defined and we don't have a working repo already we have a problem
-		if dfo.config.Repo == "" {
+		if dfo.config.GitRepo == "" {
 			simplelog.Fatal.Printf("No git repo has been specified and no current working repo in %q, aborting", dfo.config.RepoDir)
 		}
 
-		simplelog.Info.Printf("Repo doesn't exist, cloning %q into %q...", dfo.config.Repo, dfo.config.RepoDir)
+		simplelog.Info.Printf("Repo doesn't exist, cloning %q into %q...", dfo.config.GitRepo, dfo.config.RepoDir)
 		if err := initGitRepo(dfo.config); err != nil {
 			return err
 		}
@@ -70,7 +70,7 @@ func (dfo *dfoState) initWorkDir() error {
 
 // Clone our dotfiles git repo into our dfo working directory
 func initGitRepo(c dfoConfig) error {
-	cmd := exec.Command("git", "clone", c.Repo, c.RepoDir)
+	cmd := exec.Command("git", "clone", c.GitRepo, c.RepoDir)
 
 	var e bytes.Buffer
 	cmd.Stderr = &e

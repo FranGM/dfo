@@ -13,7 +13,7 @@ type dfoConfig struct {
 	RepoDir   string
 	HomeDir   string
 	WorkDir   string
-	Repo      string
+	GitRepo   string
 	Noop      bool
 	Verbose   bool
 	Backup    bool
@@ -39,6 +39,7 @@ func (c *dfoConfig) loadConfig() error {
 
 func (c *dfoConfig) setDefaults() {
 	c.HomeDir = os.Getenv("HOME")
+	c.Backup = true
 	c.WorkDir = filepath.Join(c.HomeDir, ".dfo")
 	c.RepoDir = filepath.Join(c.WorkDir, "dotfiles")
 	c.UpdateGit = true
@@ -47,7 +48,7 @@ func (c *dfoConfig) setDefaults() {
 func (c *dfoConfig) initFromParams() {
 
 	flag.StringVar(&c.WorkDir, "workdir", c.WorkDir, "Work directory for dfo (will be used to store backups and dotfiles git repo)")
-	flag.StringVar(&c.Repo, "gitrepo", c.Repo, "Remote git repo that holds your dotfiles (in the same format git would take it)")
+	flag.StringVar(&c.GitRepo, "gitrepo", c.GitRepo, "Remote git repo that holds your dotfiles (in the same format git would take it)")
 	flag.BoolVar(&c.Noop, "noop", c.Noop, "Run in noop mode (just do a dry-run)")
 	flag.BoolVar(&c.Verbose, "verbose", c.Verbose, "Verbose output")
 	flag.BoolVar(&c.Backup, "backup", c.Backup, "Perform backups of files that are updated")
