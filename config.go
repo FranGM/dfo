@@ -26,7 +26,8 @@ func (c *dfoConfig) loadConfig() error {
 	configLocation := filepath.Join(homeDir, ".dfo/config.yaml")
 	configBytes, err := ioutil.ReadFile(configLocation)
 	if err != nil {
-		if !os.IsNotExist(err) {
+		// Not required to have a config.yaml
+		if os.IsNotExist(err) {
 			return nil
 		}
 		return err
