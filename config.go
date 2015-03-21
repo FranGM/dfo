@@ -10,20 +10,18 @@ import (
 )
 
 type dfoConfig struct {
-	RepoDir   string
-	HomeDir   string
-	WorkDir   string
-	GitRepo   string
-	Noop      bool
-	Verbose   bool
-	Backup    bool
-	UpdateGit bool
+	RepoDir   string // Directory where to store dotfiles repo
+	HomeDir   string // User's home directory. Relative target paths will be relative to this
+	WorkDir   string // dfo's work directory (~/.dfo)
+	GitRepo   string // Git repository that stores user's dotfiles
+	Noop      bool   // Run dfo in noop mode
+	Verbose   bool   // Run dfo in verbose mode
+	Backup    bool   // Make backups of files before replacing them
+	UpdateGit bool   // Update dotfiles repo from origin before applying any changes
 }
 
 func (c *dfoConfig) loadConfig() error {
-	homeDir := os.Getenv("HOME")
-
-	configLocation := filepath.Join(homeDir, ".dfo/config.yaml")
+	configLocation := filepath.Join(c.WorkDir, "config.yaml")
 	configBytes, err := ioutil.ReadFile(configLocation)
 	if err != nil {
 		// Not required to have a config.yaml
