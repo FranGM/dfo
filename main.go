@@ -27,9 +27,11 @@ type dfoState struct {
 }
 
 func (dfo *dfoState) initWorkDir() error {
+
 	if err := os.MkdirAll(dfo.config.WorkDir, 0755); err != nil {
 		return err
 	}
+
 	backupDir := filepath.Join(dfo.config.WorkDir, "backups")
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return err
@@ -48,7 +50,6 @@ func (dfo *dfoState) initWorkDir() error {
 			simplelog.Fatal.Printf("No git repo has been specified and no current working repo in %q, aborting", dfo.config.RepoDir)
 		}
 
-		simplelog.Info.Printf("Repo doesn't exist, cloning %q into %q...", dfo.config.GitRepo, dfo.config.RepoDir)
 		if err := initGitRepo(dfo.config); err != nil {
 			return err
 		}
@@ -58,7 +59,6 @@ func (dfo *dfoState) initWorkDir() error {
 	// TODO: If a gitrepo has been specified, check that it's the same that we already have?
 
 	if dfo.config.UpdateGit {
-		simplelog.Info.Printf("Updating repo/submodules (might take a while if it's the first time)")
 		if err := updateGitRepo(dfo.config); err != nil {
 			return err
 		}
@@ -70,6 +70,8 @@ func (dfo *dfoState) initWorkDir() error {
 
 // Clone our dotfiles git repo into our dfo working directory
 func initGitRepo(c dfoConfig) error {
+	simplelog.Info.Printf("Repo doesn't exist, cloning %q into %q...", c.GitRepo, c.RepoDir)
+
 	cmd := exec.Command("git", "clone", c.GitRepo, c.RepoDir)
 
 	var e bytes.Buffer
@@ -86,7 +88,8 @@ func initGitRepo(c dfoConfig) error {
 func updateGitRepo(c dfoConfig) error {
 	var e bytes.Buffer
 
-	simplelog.Debug.Printf("Fetching updates from remote git repo...")
+	simplelog.Info.Printf("Fetching updates from remote git repo...")
+
 	// Do a git pull
 	cmd := exec.Command("git", "pull")
 	cmd.Dir = c.RepoDir
@@ -101,7 +104,8 @@ func updateGitRepo(c dfoConfig) error {
 func updateGitSubmodules(c dfoConfig) error {
 	var e bytes.Buffer
 
-	simplelog.Debug.Printf("Updating git submodules...")
+	simplelog.Info.Printf("Updating git submodules...")
+
 	cmd := exec.Command("git", "submodule", "update", "--init", "--recursive")
 	cmd.Dir = c.RepoDir
 	cmd.Stderr = &e
@@ -113,6 +117,8 @@ func updateGitSubmodules(c dfoConfig) error {
 }
 
 func main() {
+
+	simplelog.SetThreshold(simplelog.LevelInfo)
 	var dfo dfoState
 
 	dfo.config.setDefaults()
@@ -130,8 +136,6 @@ func main() {
 
 	if dfo.config.Verbose {
 		simplelog.SetThreshold(simplelog.LevelDebug)
-	} else {
-		simplelog.SetThreshold(simplelog.LevelInfo)
 	}
 
 	configPath := filepath.Join(dfo.config.RepoDir, "dfo.yaml")
