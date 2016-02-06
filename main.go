@@ -106,7 +106,7 @@ func updateGitSubmodules(c dfoConfig) error {
 
 	simplelog.Info.Printf("Updating git submodules...")
 
-	cmd := exec.Command("git", "submodule", "update", "--init", "--recursive")
+	cmd := exec.Command("git", "submodule", "update", "--remote", "--init", "--recursive")
 	cmd.Dir = c.RepoDir
 	cmd.Stderr = &e
 	if err := cmd.Run(); err != nil {
